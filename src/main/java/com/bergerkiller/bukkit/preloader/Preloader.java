@@ -25,13 +25,8 @@
  */
 package com.bergerkiller.bukkit.preloader;
 
-import java.io.IOException;
-import java.io.InputStream;
-import java.io.InputStreamReader;
-import java.io.Reader;
 import java.lang.reflect.Constructor;
 import java.lang.reflect.Field;
-import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
@@ -41,6 +36,7 @@ import java.util.logging.Level;
 
 import org.bukkit.Bukkit;
 import org.bukkit.ChatColor;
+import org.bukkit.command.Command;
 import org.bukkit.command.CommandMap;
 import org.bukkit.command.CommandSender;
 import org.bukkit.command.PluginCommand;
@@ -75,7 +71,7 @@ import com.google.common.collect.ImmutableList;
  * enabled and the load error is made available to operators.
  *
  * @author Irmo van den Berge (bergerkiller)
- * @version 1.4
+ * @version 1.5
  */
 public class Preloader extends JavaPlugin {
     private final String mainClassName;
@@ -87,9 +83,9 @@ public class Preloader extends JavaPlugin {
     public Preloader() {
         // Parse the required information from plugin.yml
         // If anything goes wrong, abort right away!
-        try (InputStream stream = getResource("plugin.yml"); Reader reader = new InputStreamReader(stream, StandardCharsets.UTF_8)) {
+        try {
             YamlConfiguration config = new YamlConfiguration();
-            config.load(reader);
+            config.loadFromString(readPluginYAML(this));
             ConfigurationSection preloaderConfig = config.getConfigurationSection("preloader");
             if (preloaderConfig == null) {
                 throw new IllegalStateException("plugin.yml has no preloader configuration");
@@ -118,10 +114,8 @@ public class Preloader extends JavaPlugin {
             } else {
                 preloaderCommands = new ArrayList<String>(preloaderCommandsTmp);
             }
-        } catch (IOException e) {
-            throw new IllegalStateException("Corrupt jar: Failed to read plugin.yml", e);
-        } catch (InvalidConfigurationException e) {
-            throw new IllegalStateException("Corrupt jar: Failed to load plugin.yml", e);
+        } catch (InvalidConfigurationException ex) {
+            throw new IllegalStateException("Corrupt jar: Failed to load plugin.yml", ex);
         }
     }
 
@@ -263,6 +257,12 @@ public class Preloader extends JavaPlugin {
         }, this);
     }
 
+    @Override
+    public boolean onCommand(CommandSender sender, Command command, String label, String[] args) {
+        showErrors(sender);
+        return true;
+    }
+
     private void showErrors(CommandSender sender) {
         if (this.loadError != null) {
             sender.sendMessage(ChatColor.RED + "There was a fatal error initializing " + this.getName());
@@ -373,6 +373,53 @@ public class Preloader extends JavaPlugin {
             }
         } catch (Throwable t) {
             this.getLogger().log(Level.SEVERE, "[Preloader] Failed to update class loader registry", t);
+        }
+    }
+
+    /**
+     * Locates the plugin.yml of a plugin. Some plugins (*cough* AsyncWorldEdit)
+     * inject class loader stuff into the server that breaks getResource("plugin.yml").
+     * This method tries to use findResource(), which doesn't suffer from this.
+     *
+     * @param plugin The plugin to read the plugin.yml of
+     * @return Plugin YAML text content
+     */
+    private String readPluginYAML(Plugin plugin) {
+        java.io.InputStream found_stream = null;
+        if (plugin instanceof JavaPlugin) {
+            try {
+                java.lang.reflect.Method m = JavaPlugin.class.getDeclaredMethod("getClassLoader");
+                m.setAccessible(true);
+                ClassLoader loader = (ClassLoader) m.invoke(plugin);
+                if (loader instanceof java.net.URLClassLoader) {
+                    java.net.URL resource = ((java.net.URLClassLoader) loader).findResource("plugin.yml");
+                    if (resource != null) {
+                        java.net.URLConnection connection = resource.openConnection();
+                        connection.setUseCaches(false);
+                        found_stream = connection.getInputStream();
+                    }
+                }
+            } catch (Throwable t) {
+                this.getLogger().log(java.util.logging.Level.WARNING,
+                        "Error selecting plugin.yml of " + plugin.getName() +
+                        ", trying fallback", t);
+            }
+        }
+        if (found_stream == null) {
+            found_stream = plugin.getResource("plugin.yml");
+        }
+        if (found_stream == null) {
+            throw new IllegalStateException("Failed to find plugin.yml");
+        }
+        try (java.io.InputStream stream = found_stream) {
+            java.io.ByteArrayOutputStream result = new java.io.ByteArrayOutputStream();
+            byte[] buffer = new byte[1024];
+            for (int length; (length = stream.read(buffer)) != -1; ) {
+                result.write(buffer, 0, length);
+            }
+            return new String(result.toByteArray(), java.nio.charset.StandardCharsets.UTF_8);
+        } catch (java.io.IOException ex) {
+            throw new IllegalStateException("Failed to read plugin.yml", ex);
         }
     }
 
