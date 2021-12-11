@@ -1,0 +1,51 @@
+<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+  xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+
+  <groupId>com.bergerkiller.bukkit.preloader</groupId>
+  <artifactId>PluginPreloader</artifactId>
+  <version>1.5</version>
+  <packaging>jar</packaging>
+
+  <name>Plugin-Preloader</name>
+
+  <properties>
+    <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+    <project.build.number>NO-CI</project.build.number>
+    <project.serverversion>1.16.1-R0.1</project.serverversion>
+  </properties>
+
+  <repositories>
+    <!-- Repo for access to CraftBukkit -->
+    <repository>
+      <id>spigot-repo</id>
+      <url>https://hub.spigotmc.org/nexus/content/groups/public/</url>
+    </repository>
+  </repositories>
+
+  <dependencies>
+    <dependency>
+      <groupId>org.spigotmc</groupId>
+      <artifactId>spigot-api</artifactId>
+      <version>${project.serverversion}-SNAPSHOT</version>
+    </dependency>
+  </dependencies>
+
+  <!-- Build -->
+  <build>
+    <plugins>
+      <!-- Compiler plugin -->
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-compiler-plugin</artifactId>
+        <version>3.1</version>
+        <configuration>
+          <source>1.8</source>
+          <target>1.8</target>
+          <showWarnings>false</showWarnings>
+          <showDeprecation>true</showDeprecation>
+        </configuration>
+      </plugin>
+    </plugins>
+  </build>
+</project>
