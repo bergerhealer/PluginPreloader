@@ -4,7 +4,7 @@
 
   <groupId>com.bergerkiller.bukkit.preloader</groupId>
   <artifactId>PluginPreloader</artifactId>
-  <version>1.5</version>
+  <version>1.6</version>
   <packaging>jar</packaging>
 
   <name>Plugin-Preloader</name>
@@ -28,6 +28,7 @@
       <groupId>org.spigotmc</groupId>
       <artifactId>spigot-api</artifactId>
       <version>${project.serverversion}-SNAPSHOT</version>
+      <scope>provided</scope>
     </dependency>
   </dependencies>
 
