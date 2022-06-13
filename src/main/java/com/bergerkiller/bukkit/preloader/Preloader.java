@@ -80,6 +80,7 @@ public class Preloader extends JavaPlugin {
     private final List<Depend> missingDepends = new ArrayList<>();
     private String loadError = null;
 
+    @SuppressWarnings("unchecked")
     public Preloader() {
         // Parse the required information from plugin.yml
         // If anything goes wrong, abort right away!
@@ -95,15 +96,33 @@ public class Preloader extends JavaPlugin {
                 throw new IllegalStateException("plugin.yml preloader configuration declares no main class");
             }
 
-            // Check that all dependencies exist
-            ConfigurationSection dependConfig = preloaderConfig.getConfigurationSection("depend");
-            if (dependConfig == null) {
-                dependList = Collections.emptyList();
+            // Initialize all 'depend' entries put in plugin.yml
+            // This is either a name: url mapping, or a List<Node>
+            List<?> dependConfigList = preloaderConfig.getList("depend");
+            if (dependConfigList != null) {
+                dependList = new ArrayList<Depend>(dependConfigList.size());
+                for (Object dependItem : dependConfigList) {
+                    if (!(dependItem instanceof Map)) {
+                        continue;
+                    }
+                    Map<String, Object> dependConfig = (Map<String, Object>) dependItem;
+                    String name = (String) dependConfig.getOrDefault("name", null);
+                    if (name == null) {
+                        continue;
+                    }
+                    String url = (String) dependConfig.getOrDefault("url", "");
+                    dependList.add(new Depend(name, url));
+                }
             } else {
-                Set<String> names = dependConfig.getKeys(false);
-                dependList = new ArrayList<Depend>(names.size());
-                for (String name : names) {
-                    dependList.add(new Depend(name, dependConfig.getString(name)));
+                ConfigurationSection dependConfig = preloaderConfig.getConfigurationSection("depend");
+                if (dependConfig == null) {
+                    dependList = Collections.emptyList();
+                } else {
+                    Set<String> names = dependConfig.getKeys(false);
+                    dependList = new ArrayList<Depend>(names.size());
+                    for (String name : names) {
+                        dependList.add(new Depend(name, dependConfig.getString(name)));
+                    }
                 }
             }
 
@@ -139,16 +158,16 @@ public class Preloader extends JavaPlugin {
         // because then class not found exceptions will be thrown when instantiating the plugin.
         {
             PluginDescriptionFile description = this.getDescription();
-            List<String> newDepend = new ArrayList<String>(description.getDepend());
+            List<String> newHardDepend = new ArrayList<String>(description.getDepend());
             for (Depend depend : dependList) {
-                if (!newDepend.contains(depend.name)) {
-                    newDepend.add(depend.name);
+                if (!newHardDepend.contains(depend.name)) {
+                    newHardDepend.add(depend.name);
                 }
             }
             try {
                 Field field = PluginDescriptionFile.class.getDeclaredField("depend");
                 field.setAccessible(true);
-                field.set(description, ImmutableList.copyOf(newDepend));
+                field.set(description, ImmutableList.copyOf(newHardDepend));
             } catch (Throwable t) {
                 this.getLogger().log(Level.SEVERE, "Failed to update depend list", t);
             }
@@ -207,7 +226,9 @@ public class Preloader extends JavaPlugin {
                 final PluginDescriptionFile desc = getDescription();
                 getLogger().log(Level.SEVERE, "Plugin " + desc.getName() + " " + desc.getVersion() +
                         " requires plugin " + depend.name + " to be installed! But it is not!");
-                getLogger().log(Level.SEVERE, "Download " + depend.name + " from " + depend.url);
+                if (!depend.url.isEmpty()) {
+                    getLogger().log(Level.SEVERE, "Download " + depend.name + " from " + depend.url);
+                }
             });
         }
 
@@ -272,7 +293,9 @@ public class Preloader extends JavaPlugin {
             sender.sendMessage(ChatColor.RED + "Please install these additional dependencies:");
             for (Depend depend : this.missingDepends) {
                 sender.sendMessage(ChatColor.RED + "  ======== " + depend.name + " ========");
-                sender.sendMessage(ChatColor.RED + "  > " + ChatColor.WHITE + ChatColor.UNDERLINE + depend.url);
+                if (!depend.url.isEmpty()) {
+                    sender.sendMessage(ChatColor.RED + "  > " + ChatColor.WHITE + ChatColor.UNDERLINE + depend.url);
+                }
             }
         }
     }
