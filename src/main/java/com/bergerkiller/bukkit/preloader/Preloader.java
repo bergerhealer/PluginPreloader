@@ -71,8 +71,9 @@ import com.google.common.collect.ImmutableList;
  * enabled and the load error is made available to operators.
  *
  * @author Irmo van den Berge (bergerkiller)
- * @version 1.5
+ * @version 1.8
  */
+@SuppressWarnings("unchecked")
 public class Preloader extends JavaPlugin {
     private final String mainClassName;
     private final List<Depend> dependList;
@@ -80,7 +81,6 @@ public class Preloader extends JavaPlugin {
     private final List<Depend> missingDepends = new ArrayList<>();
     private String loadError = null;
 
-    @SuppressWarnings("unchecked")
     public Preloader() {
         // Parse the required information from plugin.yml
         // If anything goes wrong, abort right away!
@@ -300,14 +300,31 @@ public class Preloader extends JavaPlugin {
         }
     }
 
-    @SuppressWarnings("unchecked")
     private void swapPluginFieldEverywhere(JavaPlugin old_plugin, JavaPlugin plugin, String pluginName) {
         // Plugin ClassLoader itself
         setLoaderPluginField(plugin, pluginName);
 
+        PluginManager manager = this.getServer().getPluginManager();
+
+        // Check whether paper or not
+        PluginManager paperManager = null;
+        try {
+            Field paperPluginManagerField = manager.getClass().getDeclaredField("paperPluginManager");
+            paperPluginManagerField.setAccessible(true);
+            paperManager = (PluginManager) paperPluginManagerField.get(manager);
+        } catch (Throwable t) { /* ignore */ }
+
+        if (paperManager != null) {
+            swapPluginFieldEverywherePaper(paperManager, old_plugin, plugin, pluginName);
+            return;
+        }
+
+        swapPluginFieldEverywhereSpigot(manager, old_plugin, plugin, pluginName);
+    }
+
+    private void swapPluginFieldEverywhereSpigot(Object manager, JavaPlugin old_plugin, JavaPlugin plugin, String pluginName) {
         // Now replace the plugin instance in all other places
         // It's absolutely important we replace it EVERYWHERE or things will probably break!
-        PluginManager manager = this.getServer().getPluginManager();
         try {
             // private final List<Plugin> plugins
             {
@@ -342,7 +359,22 @@ public class Preloader extends JavaPlugin {
         }
     }
 
-    @SuppressWarnings("unchecked")
+    private void swapPluginFieldEverywherePaper(PluginManager manager, JavaPlugin old_plugin, JavaPlugin plugin, String pluginName) {
+        Object instanceManager;
+        try {
+            // Get PaperPluginManagerImpl -> PaperPluginInstanceManager instanceManager
+            Field instanceManagerField = manager.getClass().getDeclaredField("instanceManager");
+            instanceManagerField.setAccessible(true);
+            instanceManager = instanceManagerField.get(manager);
+        } catch (Throwable t) {
+            this.getLogger().log(Level.SEVERE, "[Preloader] Failed to fully register the plugin into the server", t);
+            return;
+        }
+
+        // This appears to work for the moment. Same field names and types as Spigot...
+        swapPluginFieldEverywhereSpigot(instanceManager, old_plugin, plugin, pluginName);
+    }
+
     private void setLoaderPluginField(JavaPlugin plugin, String pluginName) {
         ClassLoader loader = this.getClassLoader();
         try {
@@ -360,6 +392,38 @@ public class Preloader extends JavaPlugin {
             this.getLogger().log(Level.SEVERE, "[Preloader] Failed to update 'pluginInit' field", t);
         }
 
+        // Check whether the class loader is using Paper's plugin loader system
+        boolean isPaperLoader = false;
+        try {
+            Class<?> paperLoaderType = Class.forName("io.papermc.paper.plugin.provider.classloader.ConfiguredPluginClassLoader");
+            isPaperLoader = paperLoaderType.isInstance(loader);
+        } catch (Throwable t) { /* ignore */ }
+
+        if (isPaperLoader) {
+            setLoaderPluginFieldPaper(loader, plugin, pluginName);
+            return;
+        }
+
+        // Default: Spigot/Bukkit
+        setLoaderPluginFieldSpigot(loader, plugin, pluginName);
+    }
+
+    private void setLoaderPluginFieldPaper(ClassLoader loader, JavaPlugin plugin, String pluginName) {
+        // No extra work appears to be needed on Paper server.
+
+        /*
+        try {
+            Field classLoaderGroupField = loader.getClass().getDeclaredField("classLoaderGroup");
+            classLoaderGroupField.setAccessible(true);
+            Object classLoaderGroup = classLoaderGroupField.get(loader);
+            System.out.println("LOADER: "  + classLoaderGroup.getClass());
+        } catch (Throwable t) {
+            this.getLogger().log(Level.SEVERE, "[Preloader] Failed to update class loader registry", t);
+        }
+        */
+    }
+
+    private void setLoaderPluginFieldSpigot(ClassLoader loader, JavaPlugin plugin, String pluginName) {
         // Make sure that during initialization (null) the PluginClassLoader for this plugin
         // is not registered in the 'global' JavaPluginLoader loaders field. Having this here
         // can cause a nullpointer exception because the plugin is initializing. Normally
