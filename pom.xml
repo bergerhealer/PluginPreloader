@@ -4,7 +4,7 @@
 
   <groupId>com.bergerkiller.bukkit.preloader</groupId>
   <artifactId>PluginPreloader</artifactId>
-  <version>1.9</version>
+  <version>1.10</version>
   <packaging>jar</packaging>
 
   <name>Plugin-Preloader</name>

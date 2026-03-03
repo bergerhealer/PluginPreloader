@@ -72,7 +72,7 @@ import com.google.common.collect.ImmutableList;
  * enabled and the load error is made available to operators.
  *
  * @author Irmo van den Berge (bergerkiller)
- * @version 1.9
+ * @version 1.10
  */
 @SuppressWarnings("unchecked")
 public class Preloader extends JavaPlugin {
@@ -308,10 +308,32 @@ public class Preloader extends JavaPlugin {
         }, this);
     }
 
+    private boolean isEnabledNormally() {
+        return loadError == null && missingDepends.isEmpty() && loadedPluginInstance != null && loadedPluginInstance.isEnabled();
+    }
+
     @Override
     public boolean onCommand(CommandSender sender, Command command, String label, String[] args) {
+        if (isEnabledNormally()) {
+            return loadedPluginInstance.onCommand(sender, command, label, args);
+        }
+
         showErrors(sender);
         return true;
+    }
+
+    @Override
+    public List<String> onTabComplete(CommandSender sender, Command command, String alias, String[] args) {
+        return isEnabledNormally()
+                ? loadedPluginInstance.onTabComplete(sender, command, alias, args)
+                : super.onTabComplete(sender, command, alias, args);
+    }
+
+    @Override
+    public PluginCommand getCommand(String name) {
+        return isEnabledNormally()
+                ? loadedPluginInstance.getCommand(name)
+                : super.getCommand(name);
     }
 
     private void showErrors(CommandSender sender) {
