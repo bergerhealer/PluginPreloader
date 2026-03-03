@@ -27,6 +27,7 @@ package com.bergerkiller.bukkit.preloader;
 
 import java.lang.reflect.Constructor;
 import java.lang.reflect.Field;
+import java.lang.reflect.InvocationTargetException;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
@@ -71,7 +72,7 @@ import com.google.common.collect.ImmutableList;
  * enabled and the load error is made available to operators.
  *
  * @author Irmo van den Berge (bergerkiller)
- * @version 1.8
+ * @version 1.9
  */
 @SuppressWarnings("unchecked")
 public class Preloader extends JavaPlugin {
@@ -80,6 +81,7 @@ public class Preloader extends JavaPlugin {
     private final List<String> preloaderCommands;
     private final List<Depend> missingDepends = new ArrayList<>();
     private String loadError = null;
+    private JavaPlugin loadedPluginInstance = null; /* For plugman support to avoid double-loading and enabling */
 
     public Preloader() {
         // Parse the required information from plugin.yml
@@ -176,6 +178,12 @@ public class Preloader extends JavaPlugin {
         // Get up-front
         final String pluginName = this.getName();
 
+        // If plugman reloaded, only ensure the plugin instance is registered properly in the server
+        if (loadedPluginInstance != null) {
+            swapPluginFieldEverywhere(this, loadedPluginInstance, pluginName);
+            return;
+        }
+
         // Load the main class as declared in the preloader configuration
         final Class<?> mainClass;
         try {
@@ -209,7 +217,9 @@ public class Preloader extends JavaPlugin {
         // Re-initialize the PluginClassLoader with the new main plugin
         // Call onLoad - if this fails, it's as if onLoad failed of the plugin itself
         try {
+            // Guard against PlugmanX and similar plugins that trigger onLoad multiple times
             mainPlugin.onLoad();
+            loadedPluginInstance = mainPlugin;
         } catch (Throwable t) {
             this.getLogger().log(Level.SEVERE, "An error occurred during onLoad()", t);
             this.loadError = "Failed to load the plugin - check server log!";
@@ -232,11 +242,31 @@ public class Preloader extends JavaPlugin {
             });
         }
 
-        // If nothing is wrong, something weird is going on
-        // It should never get here...
-        if (this.loadError == null && this.missingDepends.isEmpty()) {
-            this.loadError = "Preloading failed - unsupported server?";
+        // If there is no load error at all and no missing dependencies, we can enable the actual plugin
+        // This code is normally never hit, but required for plugins like PlugManX which call onEnable() manually
+        if (this.loadError == null && missingDepends.isEmpty()) {
+            Plugin actualPluginInstance = this.getServer().getPluginManager().getPlugin(this.getName());
+            if (actualPluginInstance != null && actualPluginInstance == loadedPluginInstance) {
+                getLogger().log(Level.INFO, "[Preloader] Plugin is enabled in a weird way, perhaps a plugin reloader like Plugman was used?");
+                try {
+                    java.lang.reflect.Method enableMethod = JavaPlugin.class.getDeclaredMethod("setEnabled", boolean.class);
+                    enableMethod.setAccessible(true);
+                    enableMethod.invoke(actualPluginInstance, true);
+                } catch (InvocationTargetException ex) {
+                    Throwable t = ex.getCause() != null ? ex.getCause() : ex;
+                    this.loadError = "Failed to enable the plugin - check server log!";
+                    getLogger().log(Level.SEVERE, "[Preloader] Failed to enable the plugin", t);
+                } catch (Throwable t) {
+                    this.loadError = "Failed to enable the plugin - check server log!";
+                    getLogger().log(Level.SEVERE, "[Preloader] Failed to enable the plugin", t);
+                }
+                return;
+            } else {
+                this.loadError = "Preloader failed to properly register the plugin on startup - check server log";
+                getLogger().log(Level.SEVERE, this.loadError);
+            }
         }
+
         if (this.loadError != null) {
             getLogger().log(Level.SEVERE, "Not enabled because plugin could not be loaded! - Check server log");
         }
@@ -332,10 +362,11 @@ public class Preloader extends JavaPlugin {
                 pluginsField.setAccessible(true);
                 List<Object> plugins = (List<Object>) pluginsField.get(manager);
                 int index = plugins.indexOf(old_plugin);
-                if (index == -1) {
+                if (index != -1) {
+                    plugins.set(index, plugin);
+                } else if (!plugins.contains(plugin)) {
                     throw new IllegalStateException("Preloader does not exist in plugins list");
                 }
-                plugins.set(index, plugin);
             }
 
             // private final Map<String, Plugin> lookupNames
@@ -347,6 +378,8 @@ public class Preloader extends JavaPlugin {
                 for (Map.Entry<Object, Object> e : lookupNames.entrySet()) {
                     if (e.getValue() == old_plugin) {
                         e.setValue(plugin);
+                        found = true;
+                    } else if (e.getValue() == plugin) {
                         found = true;
                     }
                 }
